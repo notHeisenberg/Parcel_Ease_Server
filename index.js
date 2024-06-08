@@ -126,6 +126,17 @@ async function run() {
             res.send({ admin });
         })
 
+        // API endpoint to get users with role 'deliveryman'
+        app.get('/users/deliverymen', verifyToken, verifyAdmin, async (req, res) => {
+            try {
+                const query = { role: 'deliveryman' };
+                const deliverymen = await userCollection.find(query).toArray();
+                res.send(deliverymen);
+            } catch (error) {
+                res.status(500).send({ message: 'Failed to fetch deliverymen' });
+            }
+        });
+
         // check user isDeliveryMan
         app.get('/users/deliveryman/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
@@ -143,6 +154,14 @@ async function run() {
             res.send({ deliveryman });
         })
 
+        // parcel booking api for deliveryman
+        app.get('/deliveryman/bookings', verifyToken, verifyDeliveryMan, async (req, res) => {
+            const email = req.decoded.email;
+            const query = { deliveryMenId: email };
+            const result = await userCollection.find(query).toArray();
+            res.send(result);
+        });
+
         // parcel booking api
         app.get('/bookings/:email', verifyToken, async (req, res) => {
             const query = { email: req.params.email }
@@ -153,7 +172,7 @@ async function run() {
             res.send(result);
         });
 
-        app.get('/bookings', async (req, res) => {
+        app.get('/bookings', verifyToken, verifyAdmin, async (req, res) => {
             const result = await bookingCollection.find().toArray();
             res.send(result);
         })
