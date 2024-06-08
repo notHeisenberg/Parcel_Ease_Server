@@ -4,7 +4,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const port = process.env.PORT || 5000;
 
@@ -156,11 +156,54 @@ async function run() {
         app.get('/bookings', async (req, res) => {
             const result = await bookingCollection.find().toArray();
             res.send(result);
-          })
+        })
 
         app.post('/bookings', async (req, res) => {
             const booking = req.body;
             const result = await bookingCollection.insertOne(booking);
+            res.send(result);
+        });
+
+        app.patch('/bookings/update/:id', verifyToken, async (req, res) => {
+            const id = req.params.id;
+            const booking = req.body;
+            // console.log(booking,id)
+
+            if (!ObjectId.isValid(id)) {
+                return res.status(400).send({ error: 'Invalid booking ID format' });
+            }
+
+            const query = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    displayName: booking.displayName,
+                    email: booking.email,
+                    userPhoneNumber: booking.userPhoneNumber,
+                    recieverName: booking.recieverName,
+                    recieverPhoneNumber: booking.recieverPhoneNumber,
+                    parcelType: booking.parcelType,
+                    parcelWeight: booking.parcelWeight,
+                    parcelPrice: booking.parcelPrice,
+                    deliveryAddressLatitude: booking.deliveryAddressLatitude,
+                    deliveryAddressLongitude: booking.deliveryAddressLongitude,
+                    parcelDeliveryAddress: booking.parcelDeliveryAddress,
+                    requestedDeliveryDate: booking.requestedDeliveryDate,
+                    bookingDate: booking.bookingDate
+                }
+
+            };
+            console.log(updateDoc)
+            const result = await bookingCollection.updateOne(query, updateDoc);
+            res.send(result);
+        });
+
+        app.patch('/bookings/cancel/:id', verifyToken, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: { status: 'cancelled' },
+            };
+            const result = await bookingCollection.updateOne(query, updateDoc);
             res.send(result);
         });
 
