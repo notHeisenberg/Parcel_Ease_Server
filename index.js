@@ -36,9 +36,10 @@ const client = new MongoClient(uri, {
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        // await client.connect();
+        await client.connect();
 
-        const userCollection = client.db('parcelEaseDb').collection('users')
+        const userCollection = client.db("parcelEaseDb").collection("users")
+        const bookingCollection = client.db("parcelEaseDb").collection("bookings")
 
         // jwt related api
         app.post('/jwt', async (req, res) => {
@@ -96,6 +97,7 @@ async function run() {
 
         app.post('/users', async (req, res) => {
             const user = req.body;
+            // console.log(user)
             // insert email if user doesnt exists: 
             // you can do this many ways (1. email unique, 2. upsert 3. simple checking)
             const query = { email: user.email }
@@ -107,6 +109,60 @@ async function run() {
             res.send(result);
         });
 
+        // check user isAdmin
+        app.get('/users/admin/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+
+            if (email !== req.decoded.email) {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+
+            const query = { email: email };
+            const user = await userCollection.findOne(query);
+            let admin = false;
+            if (user) {
+                admin = user?.role === 'admin';
+            }
+            res.send({ admin });
+        })
+
+        // check user isDeliveryMan
+        app.get('/users/deliveryman/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+
+            if (email !== req.decoded.email) {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+
+            const query = { email: email };
+            const user = await userCollection.findOne(query);
+            let deliveryman = false;
+            if (user) {
+                deliveryman = user?.role === 'deliveryman';
+            }
+            res.send({ deliveryman });
+        })
+
+        // parcel booking api
+        app.get('/bookings/:email', verifyToken, async (req, res) => {
+            const query = { email: req.params.email }
+            if (req.params.email !== req.decoded.email) {
+                return res.status(403).send({ message: 'forbidden access' });
+            }
+            const result = await bookingCollection.find(query).toArray();
+            res.send(result);
+        });
+
+        app.get('/bookings', async (req, res) => {
+            const result = await bookingCollection.find().toArray();
+            res.send(result);
+          })
+
+        app.post('/bookings', async (req, res) => {
+            const booking = req.body;
+            const result = await bookingCollection.insertOne(booking);
+            res.send(result);
+        });
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
