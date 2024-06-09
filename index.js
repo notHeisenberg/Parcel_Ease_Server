@@ -179,6 +179,7 @@ async function run() {
 
         app.post('/bookings', async (req, res) => {
             const booking = req.body;
+            booking.status = 'pending';
             const result = await bookingCollection.insertOne(booking);
             res.send(result);
         });
@@ -211,7 +212,7 @@ async function run() {
                 }
 
             };
-            console.log(updateDoc)
+            // console.log(updateDoc)
             const result = await bookingCollection.updateOne(query, updateDoc);
             res.send(result);
         });
@@ -221,6 +222,20 @@ async function run() {
             const query = { _id: new ObjectId(id) };
             const updateDoc = {
                 $set: { status: 'cancelled' },
+            };
+            const result = await bookingCollection.updateOne(query, updateDoc);
+            res.send(result);
+        });
+
+        app.patch('/bookings/manage/:id', verifyToken, async (req, res) => {
+            const id = req.params.id;
+            const deliveryMenId = req.body.deliveryMenId;
+            const query = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    status: 'on the way',
+                    deliveryMenId: deliveryMenId
+                },
             };
             const result = await bookingCollection.updateOne(query, updateDoc);
             res.send(result);
