@@ -91,9 +91,34 @@ async function run() {
 
 
         // users related api
-        app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
-            const result = await userCollection.find().toArray();
-            res.send(result);
+        app.get('/users', verifyToken, async (req, res) => {
+            const { role } = req.query; // Get role from query parameters
+            let query = {};
+
+            // If role is provided in the query parameters, add it to the query
+            if (role) {
+                query.role = role;
+            }
+
+            try {
+                const users = await userCollection.find(query).toArray();
+
+                const usersWithBookings = await Promise.all(users.map(async (user) => {
+                    const bookings = await bookingCollection.find({ email: user.email }).toArray();
+                    const parcelsBooked = bookings.length;
+                    const totalSpentAmount = bookings.reduce((total, booking) => total + booking.parcelWeight * booking.parcelPrice, 0); // Adjust the field name for amount as necessary
+                    return {
+                        ...user,
+                        parcelsBooked,
+                        totalSpentAmount
+                    };
+                }));
+
+                res.send(usersWithBookings);
+            } catch (error) {
+                console.error('Error fetching users with bookings:', error);
+                res.status(500).send({ message: 'Internal server error' });
+            }
         });
 
         app.post('/users', async (req, res) => {
@@ -127,17 +152,6 @@ async function run() {
             res.send({ admin });
         })
 
-        // API endpoint to get users with role 'deliveryman'
-        app.get('/users/deliverymen', verifyToken, verifyAdmin, async (req, res) => {
-            try {
-                const query = { role: 'deliveryman' };
-                const deliverymen = await userCollection.find(query).toArray();
-                res.send(deliverymen);
-            } catch (error) {
-                res.status(500).send({ message: 'Failed to fetch deliverymen' });
-            }
-        });
-
         // check user isDeliveryMan
         app.get('/users/deliveryman/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
@@ -154,6 +168,44 @@ async function run() {
             }
             res.send({ deliveryman });
         })
+
+        // Endpoint to update a user's role
+        app.patch('/users/:id/role', verifyToken, async (req, res) => {
+            const userId = req.params.id;
+            const { role } = req.body;
+
+            if (!role) {
+                return res.status(400).send({ message: 'Role is required' });
+            }
+
+            try {
+                const result = await userCollection.updateOne(
+                    { _id: new ObjectId(userId) },
+                    { $set: { role } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: 'User not found' });
+                }
+
+                res.send({ message: 'Role updated successfully' });
+            } catch (error) {
+                console.error('Error updating role:', error);
+                res.status(500).send({ message: 'Internal server error' });
+            }
+        });
+
+        // API endpoint to get users with role 'deliveryman'
+        app.get('/users/deliverymen', verifyToken, verifyAdmin, async (req, res) => {
+            try {
+                const query = { role: 'deliveryman' };
+                const deliverymen = await userCollection.find(query).toArray();
+                res.send(deliverymen);
+            } catch (error) {
+                res.status(500).send({ message: 'Failed to fetch deliverymen' });
+            }
+        });
+
 
         // Fetch bookings assigned to a specific delivery man using email
         app.get('/deliveries/:email', verifyToken, async (req, res) => {
