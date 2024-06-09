@@ -40,6 +40,7 @@ async function run() {
 
         const userCollection = client.db("parcelEaseDb").collection("users")
         const bookingCollection = client.db("parcelEaseDb").collection("bookings")
+        const reviewCollection = client.db("parcelEaseDb").collection("reviews");
 
         // jwt related api
         app.post('/jwt', async (req, res) => {
@@ -154,11 +155,25 @@ async function run() {
             res.send({ deliveryman });
         })
 
-        // parcel booking api for deliveryman
-        app.get('/deliveryman/bookings', verifyToken, verifyDeliveryMan, async (req, res) => {
-            const email = req.decoded.email;
-            const query = { deliveryMenId: email };
-            const result = await userCollection.find(query).toArray();
+        // Fetch bookings assigned to a specific delivery man using email
+        app.get('/deliveries/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+            const user = await userCollection.findOne({ email });
+            if (!user || user.role !== 'deliveryman') {
+                return res.status(404).send({ message: 'Delivery man not found' });
+            }
+            const query = { deliveryMenId: user._id.toString(), status: { $ne: 'cancelled' } };
+            const parcels = await bookingCollection.find(query).toArray();
+            res.send(parcels);
+        });
+
+        // Update booking status to 'cancelled' or 'delivered'
+        app.patch('/deliveries/:id/:status', verifyToken, async (req, res) => {
+            const id = req.params.id;
+            const status = req.params.status;
+            const query = { _id: new ObjectId(id) };
+            const updateDoc = { $set: { status: status } };
+            const result = await bookingCollection.updateOne(query, updateDoc);
             res.send(result);
         });
 
@@ -239,6 +254,47 @@ async function run() {
             };
             const result = await bookingCollection.updateOne(query, updateDoc);
             res.send(result);
+        });
+
+        // Review API
+        // POST endpoint to save a new review
+        app.post('/reviews', async (req, res) => {
+            const review = req.body;
+
+            // Input validation (you can add more validation as needed)
+            if (!review.userName || !review.userImage || !review.rating || !review.feedback || !review.deliveryMenId || !review.parcelId) {
+                return res.status(400).json({ message: 'All fields are required' });
+            }
+
+            try {
+                // Check if a review already exists for the given parcel
+                const existingReview = await reviewCollection.findOne({ parcelId: review.parcelId });
+                if (existingReview) {
+                    return res.status(400).json({ message: 'A review for this parcel already exists' });
+                }
+
+                // If no existing review found, insert the new review
+                review.createdAt = new Date();
+                const result = await reviewCollection.insertOne(review);
+                res.status(201).send(result);
+            } catch (error) {
+                console.error('Error saving review:', error);
+                res.status(500).json({ message: 'Server error' });
+            }
+        });
+
+
+        // GET endpoint to fetch reviews for a specific delivery man
+        app.get('/reviews/:deliveryMenId', async (req, res) => {
+            const deliveryMenId = req.params.deliveryMenId;
+            const query = { deliveryMenId: deliveryMenId };
+            try {
+                const reviews = await reviewCollection.find(query).toArray();
+                res.send(reviews);
+            } catch (error) {
+                console.error('Error fetching reviews:', error);
+                res.status(500).json({ message: 'Server error' });
+            }
         });
 
         // Send a ping to confirm a successful connection
