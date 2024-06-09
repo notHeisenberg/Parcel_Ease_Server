@@ -285,17 +285,29 @@ async function run() {
 
 
         // GET endpoint to fetch reviews for a specific delivery man
-        app.get('/reviews/:deliveryMenId', async (req, res) => {
-            const deliveryMenId = req.params.deliveryMenId;
-            const query = { deliveryMenId: deliveryMenId };
+        app.get('/reviews/deliveryman/:deliveryMenEmail', async (req, res) => {
+            const deliveryMenEmail = req.params.deliveryMenEmail;
+
             try {
-                const reviews = await reviewCollection.find(query).toArray();
+                // First, find the delivery man's ID by email
+                const deliveryMan = await userCollection.findOne({ email: deliveryMenEmail });
+
+                if (!deliveryMan) {
+                    return res.status(404).json({ message: 'Delivery man not found' });
+                }
+
+                const deliveryManId = deliveryMan._id.toString();
+
+                // Use the delivery man's ID to search for reviews
+                const reviews = await reviewCollection.find({ deliveryMenId: deliveryManId }).toArray();
+
                 res.send(reviews);
             } catch (error) {
                 console.error('Error fetching reviews:', error);
                 res.status(500).json({ message: 'Server error' });
             }
         });
+
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
