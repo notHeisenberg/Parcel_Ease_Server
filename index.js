@@ -445,6 +445,57 @@ async function run() {
             }
         });
 
+        app.get('/top-delivery-men', async (req, res) => {
+            try {
+                // Fetch delivery men from the user collection
+                const deliveryMen = await userCollection.find({ role: 'deliveryman' }).toArray();
+
+                // Fetch reviews for delivery men from the reviews collection
+                const reviews = await reviewCollection.find().toArray();
+
+                // Calculate average rating for each delivery man
+                const averageRatings = {};
+                const parcelDeliveries = {};
+                reviews.forEach(review => {
+                    if (!averageRatings[review.deliveryMenId]) {
+                        averageRatings[review.deliveryMenId] = { totalRating: 0, count: 0 };
+                    }
+                    averageRatings[review.deliveryMenId].totalRating += review.rating;
+                    averageRatings[review.deliveryMenId].count++;
+                });
+
+                // Fetch the number of parcels delivered for each delivery man
+                deliveryMen.forEach(deliveryMan => {
+                    parcelDeliveries[deliveryMan._id.toString()] = deliveryMan.parcelDelivered || 0;
+                });
+
+                // Calculate average rating for each delivery man
+                deliveryMen.forEach(deliveryMan => {
+                    const deliveryManId = deliveryMan._id.toString();
+                    const averageRatingData = averageRatings[deliveryManId];
+                    deliveryMan.averageRating = averageRatingData ? averageRatingData.totalRating / averageRatingData.count : 0;
+                    deliveryMan.parcelsBooked = parcelDeliveries[deliveryManId] || 0;
+                });
+
+                // Sort delivery men by the number of parcels they delivered and average ratings
+                deliveryMen.sort((a, b) => {
+                    // Sort by the number of parcels delivered (descending order)
+                    if (a.parcelsBooked !== b.parcelsBooked) {
+                        return b.parcelsBooked - a.parcelsBooked;
+                    }
+                    // If the number of parcels delivered is the same, sort by average ratings (descending order)
+                    return b.averageRating - a.averageRating;
+                });
+
+                // Take the top 3 delivery men
+                const top3DeliveryMen = deliveryMen.slice(0, 3);
+
+                res.send(top3DeliveryMen);
+            } catch (error) {
+                console.error('Error fetching top delivery men:', error);
+                res.status(500).send({ message: 'Internal server error' });
+            }
+        });
 
 
         // Send a ping to confirm a successful connection
