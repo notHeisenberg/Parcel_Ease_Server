@@ -195,16 +195,49 @@ async function run() {
             }
         });
 
-        // API endpoint to get users with role 'deliveryman'
+
+        // Fetch delivery men with their reviews and average ratings
         app.get('/users/deliverymen', verifyToken, verifyAdmin, async (req, res) => {
             try {
-                const query = { role: 'deliveryman' };
-                const deliverymen = await userCollection.find(query).toArray();
-                res.send(deliverymen);
+                // Fetch all delivery men
+                const deliverymen = await userCollection.find({ role: 'deliveryman' }).toArray();
+
+                // Aggregate reviews to calculate average rating and review count for each delivery man
+                const reviewsAggregation = [
+                    {
+                        $group: {
+                            _id: "$deliveryMenId",
+                            averageRating: { $avg: "$rating" },
+                            reviewCount: { $sum: 1 }
+                        }
+                    }
+                ];
+
+                const reviews = await reviewCollection.aggregate(reviewsAggregation).toArray();
+
+                // Map reviews to a dictionary for easy lookup
+                const reviewsMap = reviews.reduce((acc, review) => {
+                    acc[review._id.toString()] = review;
+                    return acc;
+                }, {});
+
+                // Combine delivery men with their reviews and average ratings
+                const deliveryMenWithReviews = deliverymen.map(deliveryMan => {
+                    const review = reviewsMap[deliveryMan._id.toString()];
+                    return {
+                        ...deliveryMan,
+                        averageRating: review ? review.averageRating.toFixed(1) : "N/A",
+                        reviewCount: review ? review.reviewCount : 0
+                    };
+                });
+
+                res.send(deliveryMenWithReviews);
             } catch (error) {
-                res.status(500).send({ message: 'Failed to fetch deliverymen' });
+                console.error('Error fetching delivery men reviews:', error);
+                res.status(500).send({ message: 'Internal server error' });
             }
         });
+
 
 
         // Fetch bookings assigned to a specific delivery man using email
@@ -219,15 +252,42 @@ async function run() {
             res.send(parcels);
         });
 
-        // Update booking status to 'cancelled' or 'delivered'
+
+        // Update booking status to 'cancelled' or 'delivered', and increment parcelDelivered
         app.patch('/deliveries/:id/:status', verifyToken, async (req, res) => {
             const id = req.params.id;
             const status = req.params.status;
-            const query = { _id: new ObjectId(id) };
-            const updateDoc = { $set: { status: status } };
-            const result = await bookingCollection.updateOne(query, updateDoc);
-            res.send(result);
+
+            try {
+                const query = { _id: new ObjectId(id) };
+
+                // Update the booking status
+                const updateDoc = { $set: { status } };
+
+                // Perform the update on the booking
+                const result = await bookingCollection.updateOne(query, updateDoc);
+
+                if (status === 'delivered') {
+                    // Find the booking to get the deliveryMenId
+                    const booking = await bookingCollection.findOne(query);
+                    if (!booking) {
+                        return res.status(404).send({ message: 'Booking not found' });
+                    }
+
+                    // Increment parcelDelivered for the delivery man
+                    await userCollection.updateOne(
+                        { _id: new ObjectId(booking.deliveryMenId) },
+                        { $inc: { parcelDelivered: 1 } }
+                    );
+                }
+
+                res.send(result);
+            } catch (error) {
+                console.error('Error updating booking status:', error);
+                res.status(500).send({ message: 'Internal server error' });
+            }
         });
+
 
         // parcel booking api
         app.get('/bookings/:email', verifyToken, async (req, res) => {
@@ -297,11 +357,13 @@ async function run() {
         app.patch('/bookings/manage/:id', verifyToken, async (req, res) => {
             const id = req.params.id;
             const deliveryMenId = req.body.deliveryMenId;
+            const approximateDeliveryDate = req.body.approximateDeliveryDate;
             const query = { _id: new ObjectId(id) };
             const updateDoc = {
                 $set: {
                     status: 'on the way',
-                    deliveryMenId: deliveryMenId
+                    deliveryMenId: deliveryMenId,
+                    approximateDeliveryDate: approximateDeliveryDate
                 },
             };
             const result = await bookingCollection.updateOne(query, updateDoc);
@@ -359,6 +421,30 @@ async function run() {
                 res.status(500).json({ message: 'Server error' });
             }
         });
+
+        // stasticcs related api
+        app.get('/statistics', async (req, res) => {
+            try {
+                // Total number of people using your app
+                const totalUsers = await userCollection.countDocuments();
+
+                // Total number of parcels booked
+                const totalParcelsBooked = await bookingCollection.countDocuments();
+
+                // Total number of parcels delivered (assuming status 'delivered' in bookingCollection)
+                const totalParcelsDelivered = await bookingCollection.countDocuments({ status: 'delivered' });
+
+                res.send({
+                    totalUsers,
+                    totalParcelsBooked,
+                    totalParcelsDelivered
+                });
+            } catch (error) {
+                console.error('Error fetching statistics:', error);
+                res.status(500).send({ message: 'Internal server error' });
+            }
+        });
+
 
 
         // Send a ping to confirm a successful connection
