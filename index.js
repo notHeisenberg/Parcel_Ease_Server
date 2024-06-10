@@ -399,7 +399,7 @@ async function run() {
 
 
         // GET endpoint to fetch reviews for a specific delivery man
-        app.get('/reviews/deliveryman/:deliveryMenEmail', async (req, res) => {
+        app.get('/reviews/deliveryman/:deliveryMenEmail', verifyToken, verifyDeliveryMan, async (req, res) => {
             const deliveryMenEmail = req.params.deliveryMenEmail;
 
             try {
@@ -431,13 +431,82 @@ async function run() {
                 // Total number of parcels booked
                 const totalParcelsBooked = await bookingCollection.countDocuments();
 
-                // Total number of parcels delivered (assuming status 'delivered' in bookingCollection)
+                // Total number of parcels delivered
                 const totalParcelsDelivered = await bookingCollection.countDocuments({ status: 'delivered' });
+
+                // Fetch bookings by date
+                const bookingsByDate = await bookingCollection.aggregate([
+                    {
+                        $group: {
+                            _id: {
+                                bookingDate: "$bookingDate" // Group by the bookingDate string as it is
+                            },
+                            count: { $sum: 1 }
+                        }
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            date: "$_id.bookingDate",
+                            count: 1
+                        }
+                    },
+                    { $sort: { date: 1 } }
+                ]).toArray();
+
+
+                // Fetch delivered parcels by date
+                const deliveredParcelsByDate = await bookingCollection.aggregate([
+                    {
+                        $match: { status: 'delivered' }
+                    },
+                    {
+                        $group: {
+                            _id: "$bookingDate",
+                            count: { $sum: 1 }
+                        }
+                    },
+                    { $sort: { "_id": 1 } }
+                ]).toArray();
+
+
+                // Merge bookings and delivered parcels by date
+                const mergedData = bookingsByDate.map(booking => {
+                    const delivered = deliveredParcelsByDate.find(delivered => delivered._id === booking.date);
+                    return {
+                        date: booking.date,
+                        booked: booking.count,
+                        delivered: delivered ? delivered.count : 0
+                    };
+                });
+
+                // Prepare data for the line chart
+                const lineChartData = {
+                    labels: mergedData.map(item => item.date),
+                    datasets: [
+                        {
+                            label: 'Booked Parcels',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            fill: false,
+                            data: mergedData.map(item => item.booked)
+                        },
+                        {
+                            label: 'Delivered Parcels',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            fill: false,
+                            data: mergedData.map(item => item.delivered)
+                        }
+                    ]
+                };
 
                 res.send({
                     totalUsers,
                     totalParcelsBooked,
-                    totalParcelsDelivered
+                    totalParcelsDelivered,
+                    barChartData: bookingsByDate,
+                    lineChartData
                 });
             } catch (error) {
                 console.error('Error fetching statistics:', error);
